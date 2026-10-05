@@ -70,7 +70,11 @@ const reset = (): void => {
           <span>当前基线 v1.{{ store.data.currentRevision }}</span>
         </div>
         <div class="topbar-actions">
-          <span class="sync-state">
+          <span v-if="store.saveError" class="sync-state sync-error">
+            <i class="pi pi-exclamation-circle"></i>
+            {{ store.saveError }}
+          </span>
+          <span v-else class="sync-state">
             <i class="pi pi-cloud-upload"></i>
             最后保存 {{ new Date(store.lastSavedAt).toLocaleTimeString('zh-CN') }}
           </span>
@@ -226,6 +230,11 @@ const reset = (): void => {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+}
+
+.sync-error {
+  color: #b91c1c;
+  font-weight: 600;
 }
 
 .content-shell {

@@ -32,7 +32,11 @@ const statusOptions = [
   { label: '进行中', value: 'in_progress' },
   { label: '验证中', value: 'verifying' },
   { label: '已完成', value: 'done' },
+  { label: '待重排', value: 'pending_reschedule' },
+  { label: '排队中', value: 'queued' },
 ]
+/** 编辑器里只允许人工设置执行类状态，待重排/排队由系统按控制与容量推导 */
+const editableStatusOptions = statusOptions.slice(0, 4)
 
 const form = reactive<MitigationTask>({
   id: '',
@@ -45,6 +49,7 @@ const form = reactive<MitigationTask>({
   detail: '',
   evidenceIds: [],
   conflictGroup: '',
+  version: 0,
 })
 
 const filteredTasks = computed(() =>
@@ -63,16 +68,33 @@ const conflictTaskIds = computed(() => {
   )
 })
 
+const shortageIssues = computed(() =>
+  store.issues.filter((issue) => issue.kind === 'backup_capacity_shortage'),
+)
+
 const threatLabel = (id: string): string => {
   const threat = store.data.threats.find((item) => item.id === id)
   return threat ? `${threat.code} ${threat.title}` : id
 }
 
+const statusLabel = (status: string): string =>
+  statusOptions.find((item) => item.value === status)?.label ?? status
+
+const isAdvanceable = (task: MitigationTask): boolean =>
+  task.status === 'todo' || task.status === 'in_progress' || task.status === 'verifying'
+
 const openEditor = (task?: MitigationTask): void => {
   Object.assign(
     form,
     task
-      ? structuredClone(task)
+      ? {
+          ...structuredClone(task),
+          // 待重排/排队是系统推导状态，编辑时回到失效前的执行状态
+          status:
+            task.status === 'pending_reschedule' || task.status === 'queued'
+              ? (task.resumeStatus ?? 'todo')
+              : task.status,
+        }
       : {
           id: '',
           threatId: store.data.threats[0]?.id ?? '',
@@ -84,6 +106,7 @@ const openEditor = (task?: MitigationTask): void => {
           detail: '',
           evidenceIds: [],
           conflictGroup: '',
+          version: 0,
         },
   )
   editorVisible.value = true
@@ -94,14 +117,36 @@ const saveTask = (): void => {
     toast.add({ severity: 'error', summary: '校验失败', detail: '威胁、任务、负责人和截止日期不能为空', life: 3000 })
     return
   }
-  store.saveEntity('mitigations', { ...form, id: form.id || createId('mit') })
+  const result = store.saveMitigation({ ...form, id: form.id || createId('mit') })
   editorVisible.value = false
+  if (result === 'conflict') {
+    toast.add({
+      severity: 'warn',
+      summary: '并发冲突',
+      detail: '该任务已被他人先保存，你的修改已转为草稿',
+      life: 3500,
+    })
+    return
+  }
+  if (result === 'ignored') {
+    toast.add({ severity: 'error', summary: '保存失败', detail: store.saveError || '请稍后重试', life: 3500 })
+    return
+  }
   toast.add({ severity: 'success', summary: '缓解任务已保存', detail: form.title, life: 2500 })
 }
 
-const nextStatus = (status: MitigationTask['status']): MitigationTask['status'] => {
-  const sequence: MitigationTask['status'][] = ['todo', 'in_progress', 'verifying', 'done']
-  return sequence[Math.min(sequence.indexOf(status) + 1, sequence.length - 1)]
+const advanceTask = (taskId: string): void => {
+  const result = store.advanceMitigation(taskId)
+  if (result === 'conflict') {
+    toast.add({
+      severity: 'warn',
+      summary: '并发冲突',
+      detail: '他人已先推进该任务，你的修改已转为草稿',
+      life: 3500,
+    })
+  } else if (result === 'ignored') {
+    toast.add({ severity: 'error', summary: '推进失败', detail: store.saveError || '任务状态不可推进', life: 3000 })
+  }
 }
 </script>
 
@@ -119,6 +164,35 @@ const nextStatus = (status: MitigationTask['status']): MitigationTask['status'] 
         <strong>检测到互斥缓解措施</strong>
         <span>同一威胁同时存在限制访问与有条件放行，请统一处置方向后再进入会签。</span>
       </div>
+    </section>
+
+    <section v-if="shortageIssues.length > 0" class="conflict-banner capacity-banner">
+      <i class="pi pi-inbox"></i>
+      <div>
+        <strong>备份控制容量不足</strong>
+        <span v-for="issue in shortageIssues" :key="issue.id">
+          {{ issue.title }}：{{ issue.detail }}
+        </span>
+      </div>
+    </section>
+
+    <section v-if="store.data.drafts.length > 0" class="panel drafts-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">冲突草稿 {{ store.data.drafts.length }} 条</h2>
+        <span class="muted">他人已先保存同一任务，以下修改未生效</span>
+      </div>
+      <article v-for="draft in store.data.drafts" :key="draft.id" class="draft-item">
+        <div class="draft-copy">
+          <strong>{{ draft.payload.title }}</strong>
+          <span>
+            {{ draft.note }} · 目标状态：{{ statusLabel(draft.payload.status) }} · 基于 v{{ draft.baseVersion }}（当前 v{{ draft.currentVersion }}）
+          </span>
+        </div>
+        <div class="draft-actions">
+          <Button label="重新提交" size="small" text @click="store.applyDraft(draft.id)" />
+          <Button label="丢弃" size="small" text severity="danger" @click="store.discardDraft(draft.id)" />
+        </div>
+      </article>
     </section>
 
     <section class="panel filter-panel">
@@ -166,16 +240,22 @@ const nextStatus = (status: MitigationTask['status']): MitigationTask['status'] 
             </div>
           </template>
         </Column>
+        <Column header="重排说明" style="min-width: 220px">
+          <template #body="{ data }">
+            <span v-if="data.pendingReason" class="pending-reason">{{ data.pendingReason }}</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </Column>
         <Column header="操作" style="width: 200px">
           <template #body="{ data }">
             <Button label="编辑" size="small" text @click="openEditor(data)" />
             <Button
-              v-if="data.status !== 'done'"
+              v-if="isAdvanceable(data)"
               label="推进"
               icon="pi pi-arrow-right"
               size="small"
               text
-              @click="store.updateMitigationStatus(data.id, nextStatus(data.status))"
+              @click="advanceTask(data.id)"
             />
           </template>
         </Column>
@@ -216,7 +296,7 @@ const nextStatus = (status: MitigationTask['status']): MitigationTask['status'] 
           <label>任务状态</label>
           <Select
             v-model="form.status"
-            :options="statusOptions"
+            :options="editableStatusOptions"
             option-label="label"
             option-value="value"
           />
@@ -300,5 +380,60 @@ const nextStatus = (status: MitigationTask['status']): MitigationTask['status'] 
   color: #b45309;
   font-size: 11px;
   font-weight: 700;
+}
+
+.capacity-banner {
+  border-color: #f3b7b7;
+  border-left-color: #dc2626;
+  background: #fef5f5;
+}
+
+.capacity-banner > i {
+  color: #b91c1c;
+}
+
+.capacity-banner span {
+  color: #7f3a3a;
+}
+
+.drafts-panel {
+  border-left: 4px solid #d97706;
+}
+
+.draft-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  border-top: 1px solid #eceff3;
+}
+
+.draft-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.draft-copy strong {
+  font-size: 13px;
+}
+
+.draft-copy span {
+  color: #7b6a4c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.draft-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.pending-reason {
+  color: #8a5a1d;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

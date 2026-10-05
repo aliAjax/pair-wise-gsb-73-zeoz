@@ -9,6 +9,8 @@ export const DASHBOARD_METRICS_QUERY = gql`
       coverage
       openIssues
       pendingReviews
+      pendingReschedule
+      queuedTasks
     }
   }
 `

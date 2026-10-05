@@ -1,9 +1,12 @@
 import { ApolloClient, ApolloLink, InMemoryCache, Observable } from '@apollo/client/core'
+import { evidenceIsExpired, reconcileState } from '@/services/derivation'
 import { loadState } from '@/services/repository'
-import { dashboardMetrics, evidenceIsExpired } from '@/services/selectors'
+import { dashboardMetrics } from '@/services/selectors'
 
 const resolveOperation = (operationName: string): Record<string, unknown> => {
+  // 与工作台共用同一套重算结果，保证清单、汇总、报告读数一致
   const state = loadState()
+  reconcileState(state)
 
   if (operationName === 'DashboardMetrics') {
     return { dashboardMetrics: dashboardMetrics(state) }

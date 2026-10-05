@@ -1,5 +1,4 @@
 import type {
-  ControlEvidence,
   ReviewDecision,
   Risk,
   Severity,
@@ -9,8 +8,14 @@ import type {
   VersionDifference,
   VersionSnapshot,
 } from '@/models/domain'
+import {
+  buildEvidenceMap,
+  controlHasValidEvidence,
+  evidenceIsExpired,
+  isExpired,
+} from '@/services/derivation'
 
-const TODAY = new Date('2026-09-29T00:00:00+08:00')
+export { evidenceIsExpired, isExpired }
 
 export const riskScore = (risk: Risk): number => risk.likelihood * risk.impact
 
@@ -20,11 +25,6 @@ export const riskLevel = (score: number): Severity => {
   if (score >= 6) return 'medium'
   return 'low'
 }
-
-export const isExpired = (date?: string): boolean =>
-  Boolean(date && new Date(`${date}T23:59:59+08:00`).getTime() < TODAY.getTime())
-
-export const evidenceIsExpired = (evidence: ControlEvidence): boolean => isExpired(evidence.expiresAt)
 
 export const getValidationIssues = (state: ThreatModelState): ValidationIssue[] => {
   const issues: ValidationIssue[] = []
@@ -70,15 +70,9 @@ export const getValidationIssues = (state: ThreatModelState): ValidationIssue[] 
       })
     })
 
+  const evidenceById = buildEvidenceMap(state)
   state.controls
-    .filter((control) => {
-      if (control.evidenceIds.length === 0) return true
-      const validEvidence = control.evidenceIds
-        .map((id) => state.evidence.find((item) => item.id === id))
-        .filter((item): item is ControlEvidence => Boolean(item))
-        .filter((item) => item.valid && !evidenceIsExpired(item))
-      return validEvidence.length === 0
-    })
+    .filter((control) => !controlHasValidEvidence(control, evidenceById))
     .forEach((control) => {
       issues.push({
         id: `evidence-${control.id}`,
@@ -102,6 +96,32 @@ export const getValidationIssues = (state: ThreatModelState): ValidationIssue[] 
         entityId: risk.id,
       })
     })
+
+  state.threats.forEach((threat) => {
+    const tasks = state.mitigations.filter((task) => task.threatId === threat.id)
+    const pending = tasks.filter((task) => task.status === 'pending_reschedule')
+    const queued = tasks.filter((task) => task.status === 'queued')
+    if (pending.length > 0) {
+      issues.push({
+        id: `pending-${threat.id}`,
+        kind: 'mitigation_pending_reschedule',
+        severity: 'medium',
+        title: `${threat.code} 有 ${pending.length} 条缓解任务待重排`,
+        detail: '控制状态或证据有效期变化，相关处置工作需要重新验证并排期。',
+        entityId: threat.id,
+      })
+    }
+    if (queued.length > 0) {
+      issues.push({
+        id: `shortage-${threat.id}`,
+        kind: 'backup_capacity_shortage',
+        severity: 'high',
+        title: `${threat.code} 备份控制容量不足，${queued.length} 条任务排队`,
+        detail: queued[0]?.pendingReason ?? '备份控制容量不足，任务排队等待槽位。',
+        entityId: threat.id,
+      })
+    }
+  })
 
   const taskGroups = new Map<string, typeof state.mitigations>()
   state.mitigations.forEach((task) => {
@@ -208,6 +228,8 @@ export interface DashboardMetrics {
   coverage: number
   openIssues: number
   pendingReviews: number
+  pendingReschedule: number
+  queuedTasks: number
 }
 
 export const dashboardMetrics = (state: ThreatModelState): DashboardMetrics => ({
@@ -217,4 +239,6 @@ export const dashboardMetrics = (state: ThreatModelState): DashboardMetrics => (
   coverage: threatCoverage(state),
   openIssues: getValidationIssues(state).length,
   pendingReviews: state.threats.filter((threat) => threat.reviewStatus === 'in_review').length,
+  pendingReschedule: state.mitigations.filter((task) => task.status === 'pending_reschedule').length,
+  queuedTasks: state.mitigations.filter((task) => task.status === 'queued').length,
 })

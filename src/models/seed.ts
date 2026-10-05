@@ -66,6 +66,7 @@ const mitigations: MitigationTask[] = [
     detail: '仅保留白名单办公网与管理专线访问。',
     evidenceIds: [],
     conflictGroup: 'gateway-access',
+    version: 1,
   },
   {
     id: 'mit-02',
@@ -78,6 +79,7 @@ const mitigations: MitigationTask[] = [
     detail: '申请受控网络临时放行，需每日复核会话。',
     evidenceIds: [],
     conflictGroup: 'gateway-access',
+    version: 1,
   },
   {
     id: 'mit-03',
@@ -89,6 +91,7 @@ const mitigations: MitigationTask[] = [
     action: 'encrypt',
     detail: '完成密钥托管迁移并关闭长期静态凭证。',
     evidenceIds: ['ev-02'],
+    version: 1,
   },
   {
     id: 'mit-04',
@@ -100,6 +103,19 @@ const mitigations: MitigationTask[] = [
     action: 'monitor',
     detail: '对批量导出、异常来源地和超量下载建立告警。',
     evidenceIds: ['ev-04'],
+    version: 1,
+  },
+  {
+    id: 'mit-05',
+    threatId: 'thr-02',
+    title: '隔离历史归档桶访问',
+    owner: '陈羽',
+    dueAt: '2026-10-12',
+    status: 'done',
+    action: 'isolate',
+    detail: '归档桶已切换为只读审计账号访问，待加密控制恢复后复核。',
+    evidenceIds: [],
+    version: 1,
   },
 ]
 
@@ -359,6 +375,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-02',
       description: '基于角色与数据域的访问控制。',
       evidenceIds: ['ev-01'],
+      backupCapacity: 1,
     },
     {
       id: 'ctl-02',
@@ -369,6 +386,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-04',
       description: '数据库与备份介质透明加密。',
       evidenceIds: ['ev-02'],
+      backupCapacity: 0,
     },
     {
       id: 'ctl-03',
@@ -379,6 +397,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-05',
       description: '对导出范围、频率与目标文件进行规则检测。',
       evidenceIds: ['ev-03'],
+      backupCapacity: 1,
     },
     {
       id: 'ctl-04',
@@ -389,6 +408,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-04',
       description: '高敏归档任务需申请人与复核人共同确认。',
       evidenceIds: ['ev-04'],
+      backupCapacity: 1,
     },
   ],
   evidence,
@@ -512,6 +532,7 @@ export const createSeedState = (): ThreatModelState => ({
     },
   ],
   mitigations,
+  drafts: [],
   decisions,
   versions: baselineVersions,
   audit,

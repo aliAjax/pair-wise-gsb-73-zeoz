@@ -63,7 +63,11 @@ const componentName = (id: string): string =>
       <div class="metric">
         <div class="metric-label">待会签</div>
         <div class="metric-value">{{ metrics?.pendingReviews ?? store.metrics.pendingReviews }}</div>
-        <div class="metric-note">{{ metrics?.openIssues ?? store.metrics.openIssues }} 项模型校验未关闭</div>
+        <div class="metric-note">
+          {{ metrics?.openIssues ?? store.metrics.openIssues }} 项模型校验未关闭 ·
+          {{ metrics?.pendingReschedule ?? store.metrics.pendingReschedule }} 待重排 ·
+          {{ metrics?.queuedTasks ?? store.metrics.queuedTasks }} 排队
+        </div>
       </div>
     </div>
 
@@ -81,7 +85,7 @@ const componentName = (id: string): string =>
               <p>{{ issue.detail }}</p>
             </div>
             <RouterLink
-              :to="issue.kind === 'mitigation_conflict' ? '/mitigations' : '/risks'"
+              :to="['mitigation_conflict', 'mitigation_pending_reschedule', 'backup_capacity_shortage'].includes(issue.kind) ? '/mitigations' : '/risks'"
               class="row-link"
             >
               处理

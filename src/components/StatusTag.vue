@@ -29,6 +29,8 @@ const labels: Record<string, string> = {
   in_progress: '进行中',
   verifying: '验证中',
   done: '已完成',
+  pending_reschedule: '待重排',
+  queued: '排队中',
 }
 
 const palette = computed(() => {
@@ -40,6 +42,8 @@ const palette = computed(() => {
     degraded: 'warn',
     in_review: 'warn',
     medium: 'warn',
+    pending_reschedule: 'warn',
+    queued: 'danger',
     mitigating: 'info',
     in_progress: 'info',
     verifying: 'info',

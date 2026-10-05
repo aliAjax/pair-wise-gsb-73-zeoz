@@ -12,6 +12,7 @@ import { useToast } from 'primevue/usetoast'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import type { Threat } from '@/models/domain'
+import { threatBrokenControls } from '@/services/derivation'
 import { createId } from '@/services/repository'
 import { useThreatModelStore } from '@/stores/threatModel'
 
@@ -107,6 +108,9 @@ const relatedPaths = computed(
     selectedThreat.value?.attackPathIds
       .map((id) => store.data.attackPaths.find((path) => path.id === id))
       .filter(Boolean) ?? [],
+)
+const brokenControls = computed(() =>
+  selectedThreat.value ? threatBrokenControls(store.data, selectedThreat.value) : [],
 )
 
 const clearFilters = (): void => {
@@ -286,6 +290,14 @@ const saveThreat = (): void => {
             <span class="muted">v1.{{ selectedThreat.revision }}</span>
           </div>
 
+          <div v-if="brokenControls.length > 0" class="recalc-note">
+            <i class="pi pi-sync"></i>
+            <span>
+              控制{{ brokenControls.map((control) => `「${control.name}」`).join('') }}状态异常，
+              威胁结论与关联缓解任务已按最新控制状态自动重算。
+            </span>
+          </div>
+
           <p class="description">{{ selectedThreat.description }}</p>
 
           <section class="detail-section">
@@ -365,6 +377,7 @@ const saveThreat = (): void => {
             option-label="label"
             option-value="value"
           />
+          <small class="field-hint">保存后按控制与任务状态自动重算结论，仅「已接受」保持不变。</small>
         </div>
         <div class="field field-wide">
           <label>威胁描述</label>
@@ -504,6 +517,31 @@ const saveThreat = (): void => {
   align-items: center;
   gap: 8px;
   padding: 12px 18px;
+}
+
+.recalc-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 18px 14px;
+  padding: 10px 12px;
+  border: 1px solid #f2c78f;
+  border-radius: 5px;
+  color: #8a5a1d;
+  background: #fffaf0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.recalc-note i {
+  margin-top: 2px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: #8791a3;
+  font-size: 11px;
 }
 
 .description {

@@ -2,6 +2,13 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low'
 export type ReviewStatus = 'draft' | 'in_review' | 'approved' | 'rejected'
 export type ThreatStatus = 'open' | 'mitigating' | 'mitigated' | 'accepted'
 export type ControlStatus = 'effective' | 'degraded' | 'failed' | 'planned'
+export type MitigationStatus =
+  | 'todo'
+  | 'in_progress'
+  | 'verifying'
+  | 'done'
+  | 'pending_reschedule'
+  | 'queued'
 export type ActorRole = 'development' | 'security' | 'business'
 export type DecisionType = 'accept' | 'degrade' | 'evidence_required' | 'approved' | 'rejected'
 
@@ -73,6 +80,8 @@ export interface SecurityControl {
   componentId: string
   description: string
   evidenceIds: string[]
+  /** 作为备份控制时可承接的待重排任务槽位数 */
+  backupCapacity: number
 }
 
 export interface AttackPath {
@@ -120,11 +129,29 @@ export interface MitigationTask {
   title: string
   owner: string
   dueAt: string
-  status: 'todo' | 'in_progress' | 'verifying' | 'done'
+  status: MitigationStatus
   action: 'restrict' | 'monitor' | 'encrypt' | 'isolate' | 'allow_with_condition'
   detail: string
   evidenceIds: string[]
   conflictGroup?: string
+  /** 乐观并发版本号，每次保存递增 */
+  version: number
+  /** 进入待重排/排队前的状态，控制恢复后还原 */
+  resumeStatus?: MitigationStatus
+  /** 待重排/排队原因，含备份容量缺口说明 */
+  pendingReason?: string
+}
+
+export interface MitigationDraft {
+  id: string
+  taskId: string
+  /** 后到写入被保留为先到者的版本时，本次尝试的完整任务内容 */
+  payload: MitigationTask
+  attemptedBy: string
+  baseVersion: number
+  currentVersion: number
+  createdAt: string
+  note: string
 }
 
 export interface ReviewDecision {
@@ -175,6 +202,7 @@ export interface ThreatModelState {
   attackPaths: AttackPath[]
   risks: Risk[]
   mitigations: MitigationTask[]
+  drafts: MitigationDraft[]
   decisions: ReviewDecision[]
   versions: VersionSnapshot[]
   audit: AuditEvent[]
@@ -183,7 +211,14 @@ export interface ThreatModelState {
 
 export interface ValidationIssue {
   id: string
-  kind: 'uncovered_component' | 'control_failed' | 'risk_acceptance_expired' | 'mitigation_conflict' | 'missing_evidence'
+  kind:
+    | 'uncovered_component'
+    | 'control_failed'
+    | 'risk_acceptance_expired'
+    | 'mitigation_conflict'
+    | 'missing_evidence'
+    | 'mitigation_pending_reschedule'
+    | 'backup_capacity_shortage'
   severity: Severity
   title: string
   detail: string

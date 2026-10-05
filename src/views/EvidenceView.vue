@@ -9,9 +9,9 @@ import Select from 'primevue/select'
 import { useToast } from 'primevue/usetoast'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import type { ControlEvidence } from '@/models/domain'
+import type { ControlEvidence, ControlStatus, SecurityControl } from '@/models/domain'
+import { controlHasValidEvidence, buildEvidenceMap, evidenceIsExpired } from '@/services/derivation'
 import { createId } from '@/services/repository'
-import { evidenceIsExpired } from '@/services/selectors'
 import { useThreatModelStore } from '@/stores/threatModel'
 
 const store = useThreatModelStore()
@@ -32,6 +32,18 @@ const validityOptions = [
   { label: '已过期', value: 'expired' },
   { label: '已失效', value: 'invalid' },
 ]
+const controlStatusOptions: { label: string; value: ControlStatus }[] = [
+  { label: '有效', value: 'effective' },
+  { label: '降级', value: 'degraded' },
+  { label: '失效', value: 'failed' },
+  { label: '计划中', value: 'planned' },
+]
+const controlTypeLabels: Record<SecurityControl['type'], string> = {
+  preventive: '预防',
+  detective: '检测',
+  corrective: '纠正',
+}
+const capacityOptions = [0, 1, 2, 3].map((value) => ({ label: `${value} 个槽位`, value }))
 
 const form = reactive<ControlEvidence>({
   id: '',
@@ -55,6 +67,8 @@ const filteredEvidence = computed(() =>
   }),
 )
 
+const evidenceById = computed(() => buildEvidenceMap(store.data))
+
 const effectiveControls = computed(
   () =>
     store.data.controls.filter((control) =>
@@ -67,6 +81,32 @@ const effectiveControls = computed(
 
 const controlName = (id: string): string =>
   store.data.controls.find((control) => control.id === id)?.name ?? id
+
+const linkedThreatCount = (controlId: string): number =>
+  store.data.threats.filter((threat) => threat.controlIds.includes(controlId)).length
+
+const hasValidEvidence = (control: SecurityControl): boolean =>
+  controlHasValidEvidence(control, evidenceById.value)
+
+const updateControlStatus = (control: SecurityControl, status: ControlStatus): void => {
+  store.saveEntity('controls', { ...control, status })
+  toast.add({
+    severity: 'info',
+    summary: '控制状态已更新',
+    detail: `${control.name}：关联威胁结论与缓解任务已自动重算`,
+    life: 3000,
+  })
+}
+
+const updateControlCapacity = (control: SecurityControl, backupCapacity: number): void => {
+  store.saveEntity('controls', { ...control, backupCapacity })
+  toast.add({
+    severity: 'info',
+    summary: '备份容量已更新',
+    detail: `${control.name} 可承接 ${backupCapacity} 个待重排任务`,
+    life: 2500,
+  })
+}
 
 const validity = (evidence: ControlEvidence): string =>
   evidenceIsExpired(evidence) ? 'expired' : evidence.valid ? 'valid' : 'invalid'
@@ -106,7 +146,12 @@ const saveEvidence = (): void => {
   }
   store.saveEntity('evidence', { ...form, id: form.id || createId('ev') })
   editorVisible.value = false
-  toast.add({ severity: 'success', summary: '证据已保存', detail: form.title, life: 2500 })
+  toast.add({
+    severity: 'success',
+    summary: '证据已保存',
+    detail: '证据有效期变化已触发关联威胁重算',
+    life: 2500,
+  })
 }
 </script>
 
@@ -136,6 +181,51 @@ const saveEvidence = (): void => {
         <strong>{{ store.issues.filter((issue) => issue.kind === 'missing_evidence').length }}</strong>
       </div>
     </div>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">安全控制状态</h2>
+        <span class="muted">状态或证据有效期变化将自动重算关联威胁结论与缓解任务</span>
+      </div>
+      <DataTable :value="store.data.controls" dataKey="id" size="small" stripedRows>
+        <Column field="name" header="控制" style="min-width: 200px" />
+        <Column header="类型" style="width: 80px">
+          <template #body="{ data }">{{ controlTypeLabels[data.type as SecurityControl['type']] }}</template>
+        </Column>
+        <Column header="状态" style="width: 150px">
+          <template #body="{ data }">
+            <Select
+              :model-value="data.status"
+              :options="controlStatusOptions"
+              option-label="label"
+              option-value="value"
+              size="small"
+              @update:model-value="updateControlStatus(data, $event)"
+            />
+          </template>
+        </Column>
+        <Column header="有效证据" style="width: 100px">
+          <template #body="{ data }">
+            <StatusTag :value="hasValidEvidence(data) ? 'effective' : 'failed'" kind="status" />
+          </template>
+        </Column>
+        <Column header="关联威胁" style="width: 90px">
+          <template #body="{ data }">{{ linkedThreatCount(data.id) }} 条</template>
+        </Column>
+        <Column header="备份容量" style="width: 150px">
+          <template #body="{ data }">
+            <Select
+              :model-value="data.backupCapacity"
+              :options="capacityOptions"
+              option-label="label"
+              option-value="value"
+              size="small"
+              @update:model-value="updateControlCapacity(data, $event)"
+            />
+          </template>
+        </Column>
+      </DataTable>
+    </section>
 
     <section class="panel filter-panel">
       <div class="toolbar-row">
