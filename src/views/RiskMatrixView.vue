@@ -26,9 +26,11 @@ const likelihoods = [5, 4, 3, 2, 1] as const
 const impacts = [1, 2, 3, 4, 5] as const
 
 const risksAt = (likelihood: number, impact: number): Risk[] =>
-  store.data.risks.filter(
-    (risk) => risk.likelihood === likelihood && risk.impact === impact && risk.status !== 'closed',
-  )
+  store.data.risks.filter((risk) => {
+    if (risk.likelihood !== likelihood || risk.impact !== impact) return false
+    const effectiveStatus = store.reconciliation.riskStatusById.get(risk.id) ?? risk.status
+    return effectiveStatus !== 'closed'
+  })
 
 const selectedRisk = computed(
   () => store.data.risks.find((risk) => risk.id === selectedRiskId.value) ?? null,
@@ -103,25 +105,29 @@ const submitAcceptance = (): void => {
         <div class="panel-header">
           <h2 class="panel-title">开放风险</h2>
         </div>
-        <DataTable :value="store.data.risks.filter((risk) => risk.status !== 'closed')" size="small" stripedRows>
-          <Column field="code" header="编号" style="width: 90px" />
-          <Column field="title" header="风险" />
+        <DataTable
+          :value="store.riskViews.filter(({ effectiveStatus }) => effectiveStatus !== 'closed')"
+          size="small"
+          stripedRows
+        >
+          <Column field="risk.code" header="编号" style="width: 90px" />
+          <Column field="risk.title" header="风险" />
           <Column header="评分" style="width: 100px">
             <template #body="{ data }">
-              <strong>{{ riskScore(data) }}</strong>
-              <StatusTag :value="riskLevel(riskScore(data))" kind="severity" class="risk-tag" />
+              <strong>{{ riskScore(data.risk) }}</strong>
+              <StatusTag :value="riskLevel(riskScore(data.risk))" kind="severity" class="risk-tag" />
             </template>
           </Column>
-          <Column field="owner" header="负责人" style="width: 135px" />
-          <Column header="状态" style="width: 100px">
+          <Column field="risk.owner" header="负责人" style="width: 135px" />
+          <Column header="对账状态" style="width: 110px">
             <template #body="{ data }">
-              <StatusTag :value="data.status" kind="status" />
+              <StatusTag :value="data.effectiveStatus" kind="status" />
             </template>
           </Column>
           <Column header="操作" style="width: 180px">
             <template #body="{ data }">
-              <Button label="接受" size="small" text @click="openAcceptance(data)" />
-              <Button label="关闭" size="small" text @click="store.closeRisk(data.id)" />
+              <Button label="接受" size="small" text @click="openAcceptance(data.risk)" />
+              <Button label="关闭" size="small" text @click="store.closeRisk(data.risk.id)" />
             </template>
           </Column>
         </DataTable>
@@ -130,7 +136,7 @@ const submitAcceptance = (): void => {
       <aside class="validation-panel">
         <h2>风险校验</h2>
         <article
-          v-for="issue in store.issues.filter((item) => ['risk_acceptance_expired', 'control_failed', 'missing_evidence'].includes(item.kind))"
+          v-for="issue in store.issues.filter((item) => ['risk_acceptance_expired', 'control_failed', 'missing_evidence', 'backup_capacity_exceeded'].includes(item.kind))"
           :key="issue.id"
           class="validation-item"
           :class="{ error: issue.severity === 'critical' || issue.severity === 'high' }"

@@ -72,7 +72,7 @@ const threatForm = reactive<Threat>({
 
 const filteredThreats = computed(() => {
   const normalized = keyword.value.trim().toLowerCase()
-  return store.data.threats.filter((threat) => {
+  return store.threatViews.filter(({ threat }) => {
     const textMatches =
       !normalized ||
       threat.title.toLowerCase().includes(normalized) ||
@@ -81,7 +81,8 @@ const filteredThreats = computed(() => {
     return (
       textMatches &&
       (!severityFilter.value || threat.severity === severityFilter.value) &&
-      (!statusFilter.value || threat.status === statusFilter.value) &&
+      (!statusFilter.value ||
+        store.reconciliation.threatStatusById.get(threat.id) === statusFilter.value) &&
       (!categoryFilter.value || threat.category === categoryFilter.value)
     )
   })
@@ -89,6 +90,17 @@ const filteredThreats = computed(() => {
 
 const selectedThreat = computed(
   () => store.data.threats.find((threat) => threat.id === selectedId.value) ?? null,
+)
+const selectedThreatStatus = computed(
+  () =>
+    (selectedThreat.value
+      ? store.reconciliation.threatStatusById.get(selectedThreat.value.id)
+      : undefined) ?? selectedThreat.value?.status ?? 'open',
+)
+const selectedCapacity = computed(() =>
+  selectedThreat.value
+    ? store.reconciliation.capacityByThreat.get(selectedThreat.value.id)
+    : undefined,
 )
 const relatedComponents = computed(
   () =>
@@ -167,7 +179,16 @@ const saveThreat = (): void => {
     revision: threatForm.id ? store.data.currentRevision + 1 : store.data.currentRevision,
     reviewStatus: threatForm.id ? 'in_review' : threatForm.reviewStatus,
   }
-  store.saveThreat(saved)
+  const result = store.saveThreat(saved)
+  if (result === 'save_failed') {
+    toast.add({
+      severity: 'error',
+      summary: '保存失败，已恢复完整状态',
+      detail: store.lastError || '威胁修改未生效。',
+      life: 5000,
+    })
+    return
+  }
   selectedId.value = saved.id
   editorVisible.value = false
   toast.add({
@@ -240,28 +261,28 @@ const saveThreat = (): void => {
         </div>
         <DataTable
           :value="filteredThreats"
-          dataKey="id"
+          dataKey="threat.id"
           selectionMode="single"
           :selection="selectedThreat"
           size="small"
           scrollable
           scrollHeight="640px"
-          @row-click="({ data }) => (selectedId = data.id)"
+          @row-click="({ data }) => (selectedId = data.threat.id)"
         >
-          <Column field="code" header="编号" style="width: 92px">
+          <Column field="threat.code" header="编号" style="width: 92px">
             <template #body="{ data }">
-              <strong class="threat-code">{{ data.code }}</strong>
+              <strong class="threat-code">{{ data.threat.code }}</strong>
             </template>
           </Column>
-          <Column field="title" header="威胁" />
+          <Column field="threat.title" header="威胁" />
           <Column header="级别" style="width: 74px">
             <template #body="{ data }">
-              <StatusTag :value="data.severity" kind="severity" />
+              <StatusTag :value="data.threat.severity" kind="severity" />
             </template>
           </Column>
-          <Column header="状态" style="width: 90px">
+          <Column header="有效状态" style="width: 96px">
             <template #body="{ data }">
-              <StatusTag :value="data.status" kind="status" />
+              <StatusTag :value="data.effectiveStatus" kind="status" />
             </template>
           </Column>
           <template #empty>
@@ -281,9 +302,21 @@ const saveThreat = (): void => {
           </div>
           <div class="status-line">
             <StatusTag :value="selectedThreat.severity" kind="severity" />
-            <StatusTag :value="selectedThreat.status" kind="status" />
+            <StatusTag :value="selectedThreatStatus" kind="status" />
             <StatusTag :value="selectedThreat.reviewStatus" kind="review" />
             <span class="muted">v1.{{ selectedThreat.revision }}</span>
+          </div>
+
+          <div v-if="selectedCapacity && (selectedCapacity.shortage > 0 || selectedCapacity.replanningTaskIds.length > 0 || selectedCapacity.used > 0)" class="reconcile-note">
+            <template v-if="selectedCapacity.used > 0">
+              <span class="backup-line">{{ selectedCapacity.used }} 个任务由备份控制通道承接；</span>
+            </template>
+            <template v-if="selectedCapacity.shortage > 0">
+              <span class="queue-line">{{ selectedCapacity.shortage }} 个任务排队（缺 {{ selectedCapacity.shortage }} 个备份名额）；</span>
+            </template>
+            <template v-if="selectedCapacity.replanningTaskIds.length > 0">
+              <span class="replan-line">{{ selectedCapacity.replanningTaskIds.length }} 个任务进入待重排。</span>
+            </template>
           </div>
 
           <p class="description">{{ selectedThreat.description }}</p>
@@ -512,6 +545,31 @@ const saveThreat = (): void => {
   color: #4f5b70;
   font-size: 13px;
   line-height: 1.7;
+}
+
+.reconcile-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0 18px 14px;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: #f6f8fb;
+  font-size: 12px;
+}
+
+.backup-line {
+  color: #1d4ed8;
+}
+
+.queue-line {
+  color: #b42318;
+  font-weight: 700;
+}
+
+.replan-line {
+  color: #b45309;
+  font-weight: 700;
 }
 
 .detail-section {

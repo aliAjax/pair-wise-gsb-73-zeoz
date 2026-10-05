@@ -2,6 +2,16 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low'
 export type ReviewStatus = 'draft' | 'in_review' | 'approved' | 'rejected'
 export type ThreatStatus = 'open' | 'mitigating' | 'mitigated' | 'accepted'
 export type ControlStatus = 'effective' | 'degraded' | 'failed' | 'planned'
+export type MitigationStatus =
+  | 'todo'
+  | 'in_progress'
+  | 'verifying'
+  | 'done'
+  | 'replanning'
+  | 'queued'
+  | 'draft'
+/** 缓解任务在主控制失效/证据过期后的处置去向，由对账引擎统一推导 */
+export type TaskDisposition = 'retained' | 'replanning' | 'queued'
 export type ActorRole = 'development' | 'security' | 'business'
 export type DecisionType = 'accept' | 'degrade' | 'evidence_required' | 'approved' | 'rejected'
 
@@ -73,6 +83,8 @@ export interface SecurityControl {
   componentId: string
   description: string
   evidenceIds: string[]
+  /** 备份控制通道容量：超出的有效缓解任务进入排队，0 表示无备份通道 */
+  backupCapacity: number
 }
 
 export interface AttackPath {
@@ -120,11 +132,16 @@ export interface MitigationTask {
   title: string
   owner: string
   dueAt: string
-  status: 'todo' | 'in_progress' | 'verifying' | 'done'
+  status: MitigationStatus
   action: 'restrict' | 'monitor' | 'encrypt' | 'isolate' | 'allow_with_condition'
   detail: string
   evidenceIds: string[]
   conflictGroup?: string
+  /** 显式依赖的控制；留空时继承关联威胁的全部控制 */
+  controlIds?: string[]
+  /** 乐观并发版本：两人同时推进时，先到者保留、后到者转草稿 */
+  version: number
+  updatedAt: string
 }
 
 export interface ReviewDecision {
@@ -183,7 +200,13 @@ export interface ThreatModelState {
 
 export interface ValidationIssue {
   id: string
-  kind: 'uncovered_component' | 'control_failed' | 'risk_acceptance_expired' | 'mitigation_conflict' | 'missing_evidence'
+  kind:
+    | 'uncovered_component'
+    | 'control_failed'
+    | 'risk_acceptance_expired'
+    | 'mitigation_conflict'
+    | 'missing_evidence'
+    | 'backup_capacity_exceeded'
   severity: Severity
   title: string
   detail: string

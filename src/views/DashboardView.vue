@@ -18,9 +18,9 @@ const { metrics, loading, error, load } = useDashboardGraphql()
 onMounted(load)
 
 const topRisks = computed(() =>
-  [...store.data.risks]
-    .filter((risk) => risk.status !== 'closed')
-    .sort((a, b) => riskScore(b) - riskScore(a))
+  [...store.riskViews]
+    .filter(({ effectiveStatus }) => effectiveStatus !== 'closed')
+    .sort((a, b) => riskScore(b.risk) - riskScore(a.risk))
     .slice(0, 5),
 )
 
@@ -81,7 +81,13 @@ const componentName = (id: string): string =>
               <p>{{ issue.detail }}</p>
             </div>
             <RouterLink
-              :to="issue.kind === 'mitigation_conflict' ? '/mitigations' : '/risks'"
+              :to="
+                issue.kind === 'mitigation_conflict' || issue.kind === 'backup_capacity_exceeded'
+                  ? '/mitigations'
+                  : issue.kind === 'control_failed' || issue.kind === 'missing_evidence'
+                    ? '/evidence'
+                    : '/risks'
+              "
               class="row-link"
             >
               处理
@@ -132,23 +138,23 @@ const componentName = (id: string): string =>
         </div>
       </div>
       <DataTable :value="topRisks" size="small" stripedRows>
-        <Column field="code" header="风险编号" style="width: 110px" />
-        <Column field="title" header="风险" />
+        <Column field="risk.code" header="风险编号" style="width: 110px" />
+        <Column field="risk.title" header="风险" />
         <Column header="评分" style="width: 120px">
           <template #body="{ data }">
-            <strong>{{ riskScore(data) }}</strong>
-            <StatusTag :value="riskLevel(riskScore(data))" kind="severity" class="score-tag" />
+            <strong>{{ riskScore(data.risk) }}</strong>
+            <StatusTag :value="riskLevel(riskScore(data.risk))" kind="severity" class="score-tag" />
           </template>
         </Column>
-        <Column field="owner" header="负责人" style="width: 150px" />
-        <Column header="状态" style="width: 120px">
+        <Column field="risk.owner" header="负责人" style="width: 150px" />
+        <Column header="对账状态" style="width: 120px">
           <template #body="{ data }">
-            <StatusTag :value="data.status" kind="status" />
+            <StatusTag :value="data.effectiveStatus" kind="status" />
           </template>
         </Column>
         <Column header="接受到期" style="width: 140px">
           <template #body="{ data }">
-            {{ data.acceptanceExpiresAt ?? '-' }}
+            {{ data.risk.acceptanceExpiresAt ?? '-' }}
           </template>
         </Column>
       </DataTable>

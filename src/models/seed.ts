@@ -66,6 +66,9 @@ const mitigations: MitigationTask[] = [
     detail: '仅保留白名单办公网与管理专线访问。',
     evidenceIds: [],
     conflictGroup: 'gateway-access',
+    controlIds: ['ctl-01'],
+    version: 1,
+    updatedAt: '2026-09-28T10:00:00+08:00',
   },
   {
     id: 'mit-02',
@@ -78,6 +81,9 @@ const mitigations: MitigationTask[] = [
     detail: '申请受控网络临时放行，需每日复核会话。',
     evidenceIds: [],
     conflictGroup: 'gateway-access',
+    controlIds: ['ctl-01'],
+    version: 1,
+    updatedAt: '2026-09-28T10:00:00+08:00',
   },
   {
     id: 'mit-03',
@@ -89,6 +95,9 @@ const mitigations: MitigationTask[] = [
     action: 'encrypt',
     detail: '完成密钥托管迁移并关闭长期静态凭证。',
     evidenceIds: ['ev-02'],
+    controlIds: ['ctl-02'],
+    version: 1,
+    updatedAt: '2026-09-28T10:00:00+08:00',
   },
   {
     id: 'mit-04',
@@ -100,6 +109,23 @@ const mitigations: MitigationTask[] = [
     action: 'monitor',
     detail: '对批量导出、异常来源地和超量下载建立告警。',
     evidenceIds: ['ev-04'],
+    controlIds: ['ctl-03'],
+    version: 1,
+    updatedAt: '2026-09-28T10:00:00+08:00',
+  },
+  {
+    id: 'mit-05',
+    threatId: 'thr-02',
+    title: '归档链路补加调用方签名校验',
+    owner: '陈羽',
+    dueAt: '2026-10-15',
+    status: 'in_progress',
+    action: 'restrict',
+    detail: '备份控制通道容量有限，超出的任务排队等待并标明缺口。',
+    evidenceIds: [],
+    controlIds: ['ctl-02'],
+    version: 1,
+    updatedAt: '2026-09-28T10:00:00+08:00',
   },
 ]
 
@@ -359,6 +385,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-02',
       description: '基于角色与数据域的访问控制。',
       evidenceIds: ['ev-01'],
+      backupCapacity: 0,
     },
     {
       id: 'ctl-02',
@@ -369,6 +396,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-04',
       description: '数据库与备份介质透明加密。',
       evidenceIds: ['ev-02'],
+      backupCapacity: 1,
     },
     {
       id: 'ctl-03',
@@ -379,6 +407,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-05',
       description: '对导出范围、频率与目标文件进行规则检测。',
       evidenceIds: ['ev-03'],
+      backupCapacity: 0,
     },
     {
       id: 'ctl-04',
@@ -389,6 +418,7 @@ export const createSeedState = (): ThreatModelState => ({
       componentId: 'cmp-04',
       description: '高敏归档任务需申请人与复核人共同确认。',
       evidenceIds: ['ev-04'],
+      backupCapacity: 0,
     },
   ],
   evidence,

@@ -1,16 +1,22 @@
 import type {
   ControlEvidence,
+  MitigationTask,
   ReviewDecision,
   Risk,
   Severity,
-  Threat,
   ThreatModelState,
   ValidationIssue,
   VersionDifference,
   VersionSnapshot,
 } from '@/models/domain'
+import {
+  buildReconciliation,
+  evidenceIsExpired,
+  isExpired,
+  type ReconciliationResult,
+} from '@/services/projection'
 
-const TODAY = new Date('2026-09-29T00:00:00+08:00')
+export { evidenceIsExpired, isExpired }
 
 export const riskScore = (risk: Risk): number => risk.likelihood * risk.impact
 
@@ -21,12 +27,19 @@ export const riskLevel = (score: number): Severity => {
   return 'low'
 }
 
-export const isExpired = (date?: string): boolean =>
-  Boolean(date && new Date(`${date}T23:59:59+08:00`).getTime() < TODAY.getTime())
+const taskIsActiveForConflict = (
+  task: MitigationTask,
+  reconciliation: ReconciliationResult,
+): boolean => {
+  const view = reconciliation.taskViewById.get(task.id)
+  if (!view) return task.status !== 'draft'
+  return view.disposition === 'retained' && view.displayStatus !== 'done'
+}
 
-export const evidenceIsExpired = (evidence: ControlEvidence): boolean => isExpired(evidence.expiresAt)
-
-export const getValidationIssues = (state: ThreatModelState): ValidationIssue[] => {
+export const getValidationIssues = (
+  state: ThreatModelState,
+  reconciliation: ReconciliationResult = buildReconciliation(state),
+): ValidationIssue[] => {
   const issues: ValidationIssue[] = []
   const coveredComponentIds = new Set(state.threats.flatMap((threat) => threat.componentIds))
   const coveredFlowIds = new Set(state.threats.flatMap((threat) => threat.flowIds))
@@ -60,12 +73,13 @@ export const getValidationIssues = (state: ThreatModelState): ValidationIssue[] 
   state.controls
     .filter((control) => control.status === 'failed' || control.status === 'degraded')
     .forEach((control) => {
+      const affected = reconciliation.affectedThreatsByControl.get(control.id) ?? []
       issues.push({
         id: `control-${control.id}`,
         kind: 'control_failed',
         severity: control.status === 'failed' ? 'critical' : 'high',
         title: `${control.name} 控制${control.status === 'failed' ? '已失效' : '能力降级'}`,
-        detail: '控制状态低于设计目标，相关缓解措施必须重新验证。',
+        detail: `控制状态低于设计目标，已重算 ${affected.length} 条关联威胁，相关缓解措施必须重新验证。`,
         entityId: control.id,
       })
     })
@@ -103,14 +117,33 @@ export const getValidationIssues = (state: ThreatModelState): ValidationIssue[] 
       })
     })
 
-  const taskGroups = new Map<string, typeof state.mitigations>()
-  state.mitigations.forEach((task) => {
-    if (!task.conflictGroup) return
-    const key = `${task.threatId}:${task.conflictGroup}`
-    const group = taskGroups.get(key) ?? []
-    group.push(task)
-    taskGroups.set(key, group)
+  // 备份控制容量不足：每个排队任务都对应一个被占满的名额
+  reconciliation.capacityByThreat.forEach((capacity) => {
+    if (capacity.shortage <= 0) return
+    const threat = state.threats.find((item) => item.id === capacity.threatId)
+    const queuedTitles = capacity.queuedTaskIds
+      .map((id) => state.mitigations.find((task) => task.id === id)?.title ?? id)
+      .join('；')
+    issues.push({
+      id: `backup-capacity-${capacity.threatId}`,
+      kind: 'backup_capacity_exceeded',
+      severity: 'high',
+      title: `${threat?.code ?? capacity.threatId} 备份控制容量不足`,
+      detail: `备份通道共 ${capacity.offered} 个名额、已占用 ${capacity.used} 个，缺 ${capacity.shortage} 个名额，${capacity.shortage} 个缓解任务排队等待（${queuedTitles}）。`,
+      entityId: capacity.threatId,
+    })
   })
+
+  const taskGroups = new Map<string, MitigationTask[]>()
+  state.mitigations
+    .filter((task) => taskIsActiveForConflict(task, reconciliation))
+    .forEach((task) => {
+      if (!task.conflictGroup) return
+      const key = `${task.threatId}:${task.conflictGroup}`
+      const group = taskGroups.get(key) ?? []
+      group.push(task)
+      taskGroups.set(key, group)
+    })
 
   taskGroups.forEach((tasks) => {
     const actions = new Set(tasks.map((task) => task.action))
@@ -198,9 +231,6 @@ export const threatCoverage = (state: ThreatModelState): number => {
   return Math.round((covered.size / state.components.length) * 100)
 }
 
-export const openCriticalThreats = (threats: Threat[]): number =>
-  threats.filter((threat) => threat.severity === 'critical' && threat.status !== 'mitigated').length
-
 export interface DashboardMetrics {
   components: number
   threats: number
@@ -210,11 +240,21 @@ export interface DashboardMetrics {
   pendingReviews: number
 }
 
-export const dashboardMetrics = (state: ThreatModelState): DashboardMetrics => ({
-  components: state.components.length,
-  threats: state.threats.length,
-  critical: openCriticalThreats(state.threats),
-  coverage: threatCoverage(state),
-  openIssues: getValidationIssues(state).length,
-  pendingReviews: state.threats.filter((threat) => threat.reviewStatus === 'in_review').length,
-})
+export const dashboardMetrics = (
+  state: ThreatModelState,
+  reconciliation: ReconciliationResult = buildReconciliation(state),
+): DashboardMetrics => {
+  const openCritical = state.threats.filter((threat) => {
+    const status = reconciliation.threatStatusById.get(threat.id) ?? threat.status
+    return threat.severity === 'critical' && status !== 'mitigated' && status !== 'accepted'
+  }).length
+
+  return {
+    components: state.components.length,
+    threats: state.threats.length,
+    critical: openCritical,
+    coverage: threatCoverage(state),
+    openIssues: getValidationIssues(state, reconciliation).length,
+    pendingReviews: state.threats.filter((threat) => threat.reviewStatus === 'in_review').length,
+  }
+}

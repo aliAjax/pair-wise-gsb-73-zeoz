@@ -29,6 +29,8 @@ const labels: Record<string, string> = {
   in_progress: '进行中',
   verifying: '验证中',
   done: '已完成',
+  replanning: '待重排',
+  queued: '排队中',
 }
 
 const palette = computed(() => {
@@ -36,10 +38,13 @@ const palette = computed(() => {
     critical: 'danger',
     failed: 'danger',
     rejected: 'danger',
+    replanning: 'danger',
     high: 'warn',
     degraded: 'warn',
     in_review: 'warn',
     medium: 'warn',
+    queued: 'warn',
+    draft: 'secondary',
     mitigating: 'info',
     in_progress: 'info',
     verifying: 'info',

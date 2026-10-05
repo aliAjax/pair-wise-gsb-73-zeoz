@@ -95,18 +95,18 @@ const downloadReport = (): void => {
         <div class="scope-summary">
           <div>
             <span>风险摘要</span>
-            <strong>{{ store.data.risks.filter((risk) => risk.status !== 'closed').length }} 条开放</strong>
+            <strong>{{ store.riskViews.filter(({ effectiveStatus }) => effectiveStatus !== 'closed').length }} 条开放</strong>
           </div>
           <div
-            v-for="risk in [...store.data.risks]
-              .filter((item) => item.status !== 'closed')
-              .sort((a, b) => riskScore(b) - riskScore(a))
+            v-for="item in [...store.riskViews]
+              .filter(({ effectiveStatus }) => effectiveStatus !== 'closed')
+              .sort((a, b) => riskScore(b.risk) - riskScore(a.risk))
               .slice(0, 3)"
-            :key="risk.id"
+            :key="item.risk.id"
             class="scope-risk"
           >
-            <span>{{ risk.code }} {{ risk.title }}</span>
-            <StatusTag :value="riskLevel(riskScore(risk))" kind="severity" />
+            <span>{{ item.risk.code }} {{ item.risk.title }}</span>
+            <StatusTag :value="riskLevel(riskScore(item.risk))" kind="severity" />
           </div>
         </div>
         <Button label="导出 Markdown" icon="pi pi-download" class="export-button" @click="downloadReport" />

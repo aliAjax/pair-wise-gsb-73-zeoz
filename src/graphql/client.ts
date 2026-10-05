@@ -1,12 +1,14 @@
 import { ApolloClient, ApolloLink, InMemoryCache, Observable } from '@apollo/client/core'
 import { loadState } from '@/services/repository'
-import { dashboardMetrics, evidenceIsExpired } from '@/services/selectors'
+import { buildReconciliation } from '@/services/projection'
+import { dashboardMetrics } from '@/services/selectors'
 
 const resolveOperation = (operationName: string): Record<string, unknown> => {
   const state = loadState()
+  const reconciliation = buildReconciliation(state)
 
   if (operationName === 'DashboardMetrics') {
-    return { dashboardMetrics: dashboardMetrics(state) }
+    return { dashboardMetrics: dashboardMetrics(state, reconciliation) }
   }
 
   if (operationName === 'ThreatIndex') {
@@ -16,7 +18,7 @@ const resolveOperation = (operationName: string): Record<string, unknown> => {
         code: threat.code,
         title: threat.title,
         severity: threat.severity,
-        status: threat.status,
+        status: reconciliation.threatStatusById.get(threat.id) ?? threat.status,
         reviewStatus: threat.reviewStatus,
         componentCount: threat.componentIds.length,
         controlCount: threat.controlIds.length,
@@ -28,15 +30,14 @@ const resolveOperation = (operationName: string): Record<string, unknown> => {
     return {
       controlHealth: {
         total: state.controls.length,
-        effective: state.controls.filter((control) => control.status === 'effective').length,
+        effective: state.controls.filter(
+          (control) => reconciliation.controlEffectiveById.get(control.id) === true,
+        ).length,
         degraded: state.controls.filter((control) => control.status === 'degraded').length,
         failed: state.controls.filter((control) => control.status === 'failed').length,
-        missingEvidence: state.controls.filter((control) => {
-          const evidence = control.evidenceIds
-            .map((id) => state.evidence.find((item) => item.id === id))
-            .filter((item) => item?.valid && !evidenceIsExpired(item))
-          return evidence.length === 0
-        }).length,
+        missingEvidence: state.controls.filter(
+          (control) => reconciliation.controlEffectiveById.get(control.id) === false,
+        ).length,
       },
     }
   }
